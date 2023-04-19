@@ -88,8 +88,12 @@ class ChatGPTBot:
         openai.api_key = OPENAI_API_KEY
         ms = []
         for h in self.history:
-            ms.append({"role": "user", "content": h[0]})
-            ms.append({"role": "assistant", "content": h[1]})
+            ms.extend(
+                (
+                    {"role": "user", "content": h[0]},
+                    {"role": "assistant", "content": h[1]},
+                )
+            )
         ms.append({"role": "user", "content": f"{query}"})
         completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=ms)
         message = (
@@ -218,9 +222,7 @@ class MiGPT:
 
     async def get_latest_ask_from_xiaoai(self):
         if CLI_INTERACTIVE_MODE:
-            r = await self.simulate_xiaoai_question()
-            return r
-
+            return await self.simulate_xiaoai_question()
         r = await self.session.get(
             LATEST_ASK_API.format(
                 hardware=self.hardware, timestamp=str(int(time.time() * 1000))
@@ -273,13 +275,12 @@ class MiGPT:
 
     async def ask_gpt3(self, query):
         data = await self.chatbot.ask(query)
-        choices = data.get("choices")
-        if not choices:
-            print("No reply from gpt3")
-        else:
+        if choices := data.get("choices"):
             message = choices[0].get("text", "")
             message = self._normalize(message)
             return message
+        else:
+            print("No reply from gpt3")
 
     async def ask_chatgpt(self, query):
         # TODO maybe use v2 to async it here
@@ -303,12 +304,12 @@ class MiGPT:
 
     async def get_if_xiaoai_is_playing(self):
         playing_info = await self.mina_service.player_get_status(self.device_id)
-        # WTF xiaomi api
-        is_playing = (
-            json.loads(playing_info.get("data", {}).get("info", "{}")).get("status", -1)
+        return (
+            json.loads(playing_info.get("data", {}).get("info", "{}")).get(
+                "status", -1
+            )
             == 1
         )
-        return is_playing
 
     async def stop_if_xiaoai_is_playing(self):
         is_playing = await self.get_if_xiaoai_is_playing()
@@ -364,7 +365,7 @@ class MiGPT:
                             print("小爱没回")
                         message = await self.ask_gpt(query)
                         # tts to xiaoai with ChatGPT answer
-                        print("以下是GPT的回答: " + message)
+                        print(f"以下是GPT的回答: {message}")
                         await self.do_tts(message)
                         if self.mute_xiaoai:
                             while 1:
@@ -373,9 +374,8 @@ class MiGPT:
                                 if not is_playing:
                                     break
                             self.this_mute_xiaoai = True
-                else:
-                    if self.verbose:
-                        print("No new xiao ai record")
+                elif self.verbose:
+                    print("No new xiao ai record")
 
 
 if __name__ == "__main__":
@@ -457,12 +457,11 @@ if __name__ == "__main__":
 
     if options.config:
         config = {}
-        if os.path.exists(options.config):
-            with open(options.config, "r") as f:
-                config = json.load(f)
-        else:
+        if not os.path.exists(options.config):
             raise Exception(f"{options.config} doesn't exist")
 
+        with open(options.config, "r") as f:
+            config = json.load(f)
         # update options with config
         for key, value in config.items():
             if not getattr(options, key, None):
@@ -472,12 +471,10 @@ if __name__ == "__main__":
     MI_USER = options.account or env.get("MI_USER") or MI_USER
     MI_PASS = options.password or env.get("MI_PASS") or MI_PASS
     OPENAI_API_KEY = options.openai_key or env.get("OPENAI_API_KEY")
-    if options.use_gpt3:
-        if not OPENAI_API_KEY:
-            raise Exception("Use gpt-3 api need openai API key, please google how to")
-    if options.use_chatgpt_api:
-        if not OPENAI_API_KEY:
-            raise Exception("Use chatgpt api need openai API key, please google how to")
+    if options.use_gpt3 and not OPENAI_API_KEY:
+        raise Exception("Use gpt-3 api need openai API key, please google how to")
+    if options.use_chatgpt_api and not OPENAI_API_KEY:
+        raise Exception("Use chatgpt api need openai API key, please google how to")
 
     miboy = MiGPT(
         options.hardware,
